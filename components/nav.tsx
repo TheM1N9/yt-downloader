@@ -8,7 +8,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Home" },
   { href: "/thumbnail", label: "Thumbnails" },
   { href: "/video", label: "Video" },
-  { href: "/caption", label: "Captions" },
+  // { href: "/caption", label: "Captions" },
 ] as const
 
 export function Nav() {

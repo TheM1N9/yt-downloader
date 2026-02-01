@@ -48,8 +48,17 @@ export default function VideoPage() {
       setError(null)
 
       try {
-        // Always download through backend server
-        const downloadUrl = `/api/video/download?videoId=${videoId}&itag=${format.itag}`
+        // Build download URL
+        // If video-only format, automatically merge with best audio
+        const isVideoOnly = format.hasVideo && !format.hasAudio
+        const params = new URLSearchParams({
+          videoId,
+          itag: format.itag.toString(),
+        })
+        if (isVideoOnly) {
+          params.set("mergeAudio", "true")
+        }
+        const downloadUrl = `/api/video/download?${params.toString()}`
 
         // Use anchor tag with download attribute to trigger browser download
         const a = document.createElement("a")
@@ -121,8 +130,8 @@ export default function VideoPage() {
             <CardContent className="py-4">
               <p className="text-sm text-text-secondary">
                 <strong className="text-text-primary">Note:</strong> All downloads are
-                processed through the server. Formats marked &quot;Video + Audio&quot;
-                contain both streams. Video-only formats require separate audio.
+                processed through the server. Video-only formats will automatically
+                be merged with the best available audio track.
               </p>
             </CardContent>
           </Card>

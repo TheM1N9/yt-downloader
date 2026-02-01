@@ -1,4 +1,4 @@
-import { spawn, execSync } from "child_process"
+import { spawn, execSync, SpawnOptions } from "child_process"
 import { createReadStream, existsSync, unlink } from "fs"
 import { join } from "path"
 import { Readable, PassThrough } from "stream"
@@ -19,6 +19,18 @@ function getYtDlpPath(): string {
 
 const YT_DLP_PATH = getYtDlpPath()
 
+// Build PATH with Deno for HLS support
+function getEnvWithDeno(): NodeJS.ProcessEnv {
+  const denoPath = join(process.env.HOME || "", ".deno/bin")
+  const currentPath = process.env.PATH || ""
+  return {
+    ...process.env,
+    PATH: `${denoPath}:${currentPath}`,
+  }
+}
+
+const envWithDeno = getEnvWithDeno()
+
 // Cookies file path (Netscape format)
 function getCookiesPath(): string | undefined {
   const cookiesPath = join(process.cwd(), "cookies.txt")
@@ -34,6 +46,11 @@ function baseArgs(): string[] {
   return args
 }
 
+// Spawn options with Deno in PATH and stdio pipes
+function spawnOpts(): SpawnOptions {
+  return { env: envWithDeno, stdio: ["pipe", "pipe", "pipe"] }
+}
+
 // Execute yt-dlp and parse JSON output
 function execYtDlp(videoId: string): any {
   const url = `https://www.youtube.com/watch?v=${videoId}`
@@ -42,6 +59,7 @@ function execYtDlp(videoId: string): any {
   const output = execSync([YT_DLP_PATH, ...args].join(" "), {
     encoding: "utf-8",
     maxBuffer: 50 * 1024 * 1024,
+    env: envWithDeno,
   })
 
   return JSON.parse(output)
@@ -151,9 +169,9 @@ export function createVideoStream(videoId: string, itag: number): Readable {
   const url = `https://www.youtube.com/watch?v=${videoId}`
   const args = [...baseArgs(), "-f", itag.toString(), "-o", "-", url]
 
-  const proc = spawn(YT_DLP_PATH, args)
+  const proc = spawn(YT_DLP_PATH, args, spawnOpts())
 
-  proc.stderr.on("data", (data: Buffer) => {
+  proc.stderr?.on("data", (data: Buffer) => {
     console.error("yt-dlp:", data.toString().trim())
   })
 
@@ -161,16 +179,26 @@ export function createVideoStream(videoId: string, itag: number): Readable {
     console.error("yt-dlp spawn error:", err)
   })
 
-  return proc.stdout
+  return proc.stdout as Readable
 }
 
-// Download and merge video+audio by quality (e.g., "1080", "720")
+// Download video+audio by quality (e.g., "1080", "720")
+// Downloads to temp file, merges video+audio, then streams the result
 export function createMergedStream(videoId: string, quality: string): Readable {
   const url = `https://www.youtube.com/watch?v=${videoId}`
   const tmpFile = join("/tmp", `yt-${videoId}-${quality}-${Date.now()}.mp4`)
 
-  // Format selector: best video at height + best audio, with fallbacks
-  const formatStr = `bestvideo[height<=${quality}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${quality}]+bestaudio/best[height<=${quality}]/best`
+  // Format selector priority:
+  // 1. HLS stream at specified height (already has video+audio)
+  // 2. Best video at height + best audio (requires merge)
+  // 3. Any best format at height
+  const formatStr = [
+    `best[protocol=m3u8][height<=${quality}]`,
+    `bestvideo[height<=${quality}][ext=mp4]+bestaudio[ext=m4a]`,
+    `bestvideo[height<=${quality}]+bestaudio`,
+    `best[height<=${quality}]`,
+    `best`,
+  ].join("/")
 
   const args = [
     ...baseArgs(),
@@ -181,9 +209,9 @@ export function createMergedStream(videoId: string, quality: string): Readable {
   ]
 
   const outputStream = new PassThrough()
-  const proc = spawn(YT_DLP_PATH, args)
+  const proc = spawn(YT_DLP_PATH, args, spawnOpts())
 
-  proc.stderr.on("data", (data: Buffer) => {
+  proc.stderr?.on("data", (data: Buffer) => {
     console.error("yt-dlp:", data.toString().trim())
   })
 
@@ -194,6 +222,7 @@ export function createMergedStream(videoId: string, quality: string): Readable {
 
   proc.on("close", (code) => {
     if (code === 0) {
+      // Download complete, stream the file
       const fileStream = createReadStream(tmpFile)
 
       fileStream.on("end", () => unlink(tmpFile, () => {}))

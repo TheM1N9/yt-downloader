@@ -41,57 +41,23 @@ export default function VideoPage() {
 
   const handleDownload = useCallback(
     async (format: VideoFormat) => {
-      if (!videoId || !videoInfo) return
+      if (!videoId) return
 
       setIsDownloading(true)
       setDownloadingItag(format.itag)
       setError(null)
 
       try {
-        // If format has direct URL, use it directly
-        if (format.url) {
-          const a = document.createElement("a")
-          a.href = format.url
-          a.target = "_blank"
-          a.rel = "noopener noreferrer"
-          
-          const ext = format.container || "mp4"
-          const sanitizedTitle = videoInfo.title
-            .replace(/[^a-z0-9]/gi, "_")
-            .substring(0, 100)
-          a.download = `${sanitizedTitle}_${format.qualityLabel}.${ext}`
-          
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-        } else {
-          // Fallback to API download
-          const response = await fetch(
-            `/api/video/download?videoId=${videoId}&itag=${format.itag}`,
-            { redirect: "follow" }
-          )
+        // Always download through backend server
+        const downloadUrl = `/api/video/download?videoId=${videoId}&itag=${format.itag}`
 
-          if (!response.ok) {
-            const data = await response.json().catch(() => ({}))
-            throw new Error(data.error || "Download failed")
-          }
-
-          const blob = await response.blob()
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement("a")
-          a.href = url
-
-          const ext = format.container || "mp4"
-          const sanitizedTitle = videoInfo.title
-            .replace(/[^a-z0-9]/gi, "_")
-            .substring(0, 100)
-          a.download = `${sanitizedTitle}_${format.qualityLabel}.${ext}`
-
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
-        }
+        // Use anchor tag with download attribute to trigger browser download
+        const a = document.createElement("a")
+        a.href = downloadUrl
+        a.style.display = "none"
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
       } catch (err) {
         console.error("Download failed:", err)
         setError(err instanceof Error ? err.message : "Download failed")
@@ -100,7 +66,7 @@ export default function VideoPage() {
         setDownloadingItag(null)
       }
     },
-    [videoId, videoInfo]
+    [videoId]
   )
 
   return (
@@ -154,9 +120,9 @@ export default function VideoPage() {
           <Card className="bg-background">
             <CardContent className="py-4">
               <p className="text-sm text-text-secondary">
-                <strong className="text-text-primary">Note:</strong> Formats marked
-                &quot;Video + Audio&quot; can be downloaded directly. Some formats may open
-                in a new tab - right-click and select &quot;Save as&quot; to download.
+                <strong className="text-text-primary">Note:</strong> All downloads are
+                processed through the server. Formats marked &quot;Video + Audio&quot;
+                contain both streams. Video-only formats require separate audio.
               </p>
             </CardContent>
           </Card>

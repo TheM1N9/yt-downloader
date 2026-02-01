@@ -60,13 +60,37 @@ export default function VideoPage() {
         }
         const downloadUrl = `/api/video/download?${params.toString()}`
 
-        // Use anchor tag with download attribute to trigger browser download
+        // Fetch the file as a blob to track download progress
+        const response = await fetch(downloadUrl)
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || "Download failed")
+        }
+
+        // Get filename from Content-Disposition header or use default
+        const contentDisposition = response.headers.get("Content-Disposition")
+        let filename = `video_${videoId}.mp4`
+        if (contentDisposition) {
+          const filenameMatch = contentDisposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';\n]+)["']?/i)
+          if (filenameMatch) {
+            filename = decodeURIComponent(filenameMatch[1])
+          }
+        }
+
+        // Convert response to blob and create download link
+        const blob = await response.blob()
+        const blobUrl = URL.createObjectURL(blob)
+
         const a = document.createElement("a")
-        a.href = downloadUrl
+        a.href = blobUrl
+        a.download = filename
         a.style.display = "none"
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
+
+        // Clean up blob URL
+        URL.revokeObjectURL(blobUrl)
       } catch (err) {
         console.error("Download failed:", err)
         setError(err instanceof Error ? err.message : "Download failed")

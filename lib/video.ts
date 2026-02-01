@@ -1,33 +1,51 @@
-import ytdl, { Cookie } from "@distube/ytdl-core"
-import { existsSync, readFileSync } from "fs"
+import { spawn, execSync } from "child_process"
+import { createReadStream, existsSync, unlink } from "fs"
 import { join } from "path"
-import { spawn } from "child_process"
-import { Readable } from "stream"
+import { Readable, PassThrough } from "stream"
 
-// Path to yt-dlp binary
-const YT_DLP_PATH = join(process.env.HOME || "", ".local/bin/yt-dlp")
-
-// Try to load cookies from cookies.json file in project root
-function loadCookies(): Cookie[] | undefined {
-  const cookiesPath = join(process.cwd(), "cookies.json")
-  if (existsSync(cookiesPath)) {
-    try {
-      const cookies = JSON.parse(readFileSync(cookiesPath, "utf-8")) as Cookie[]
-      console.log("Loaded YouTube cookies from cookies.json")
-      return cookies
-    } catch (e) {
-      console.warn("Failed to parse cookies.json:", e)
-    }
+// Find yt-dlp binary
+function getYtDlpPath(): string {
+  const paths = [
+    join(process.env.HOME || "", ".local/bin/yt-dlp"),
+    "/usr/local/bin/yt-dlp",
+    "/opt/homebrew/bin/yt-dlp",
+    "yt-dlp",
+  ]
+  for (const p of paths) {
+    if (p === "yt-dlp" || existsSync(p)) return p
   }
-  return undefined
+  return "yt-dlp"
 }
 
-const cookies = loadCookies()
+const YT_DLP_PATH = getYtDlpPath()
 
-// Create agent with cookies if available, or default agent
-const agent = cookies
-  ? ytdl.createAgent(cookies)
-  : ytdl.createAgent(undefined)
+// Cookies file path (Netscape format)
+function getCookiesPath(): string | undefined {
+  const cookiesPath = join(process.cwd(), "cookies.txt")
+  return existsSync(cookiesPath) ? cookiesPath : undefined
+}
+
+const cookiesPath = getCookiesPath()
+
+// Base args for all yt-dlp calls
+function baseArgs(): string[] {
+  const args = ["--no-warnings", "--no-playlist"]
+  if (cookiesPath) args.push("--cookies", cookiesPath)
+  return args
+}
+
+// Execute yt-dlp and parse JSON output
+function execYtDlp(videoId: string): any {
+  const url = `https://www.youtube.com/watch?v=${videoId}`
+  const args = [...baseArgs(), "-j", url]
+
+  const output = execSync([YT_DLP_PATH, ...args].join(" "), {
+    encoding: "utf-8",
+    maxBuffer: 50 * 1024 * 1024,
+  })
+
+  return JSON.parse(output)
+}
 
 export interface VideoInfo {
   id: string
@@ -47,48 +65,64 @@ export interface VideoFormat {
   container: string
   hasVideo: boolean
   hasAudio: boolean
-  contentLength?: string
   bitrate?: number
   audioBitrate?: number
   mimeType?: string
+  protocol?: string
 }
 
 export async function getVideoInfo(videoId: string): Promise<VideoInfo> {
-  const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${videoId}`, { agent })
-  const details = info.videoDetails
+  const info = execYtDlp(videoId)
 
   return {
-    id: details.videoId,
-    title: details.title,
-    description: details.description || "",
-    lengthSeconds: parseInt(details.lengthSeconds),
-    viewCount: parseInt(details.viewCount),
-    channelName: details.author.name,
-    channelUrl: details.author.channel_url,
-    thumbnail: details.thumbnails[details.thumbnails.length - 1]?.url || "",
-    publishDate: details.publishDate || "",
+    id: info.id,
+    title: info.title,
+    description: info.description || "",
+    lengthSeconds: info.duration || 0,
+    viewCount: info.view_count || 0,
+    channelName: info.channel || info.uploader || "",
+    channelUrl: info.channel_url || info.uploader_url || "",
+    thumbnail: info.thumbnail || info.thumbnails?.[info.thumbnails.length - 1]?.url || "",
+    publishDate: info.upload_date || "",
   }
 }
 
 export async function getVideoFormats(videoId: string): Promise<VideoFormat[]> {
-  const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${videoId}`, { agent })
+  const info = execYtDlp(videoId)
+  const formats = info.formats || []
 
-  // Return all formats with quality info (streaming handled by backend)
-  return info.formats
-    .filter((f) => f.qualityLabel || f.audioBitrate)
-    .map((f) => ({
-      itag: f.itag,
-      qualityLabel: f.qualityLabel || `${f.audioBitrate}kbps`,
-      container: f.container,
-      hasVideo: f.hasVideo,
-      hasAudio: f.hasAudio,
-      contentLength: f.contentLength,
-      bitrate: f.bitrate,
-      audioBitrate: f.audioBitrate,
-      mimeType: f.mimeType,
-    }))
-    .sort((a, b) => {
-      // Sort by quality (higher first)
+  return formats
+    .filter((f: any) => f.format_id && (f.vcodec !== "none" || f.acodec !== "none"))
+    .map((f: any) => {
+      const hasVideo = f.vcodec !== "none" && !!f.vcodec
+      const hasAudio = f.acodec !== "none" && !!f.acodec
+
+      let qualityLabel = ""
+      if (hasVideo && f.height) {
+        qualityLabel = `${f.height}p`
+      } else if (hasAudio && f.abr) {
+        qualityLabel = `${Math.round(f.abr)}kbps`
+      } else if (f.format_note) {
+        qualityLabel = f.format_note
+      }
+
+      return {
+        itag: parseInt(f.format_id) || 0,
+        qualityLabel,
+        container: f.ext || "",
+        hasVideo,
+        hasAudio,
+        bitrate: f.tbr ? Math.round(f.tbr * 1000) : undefined,
+        audioBitrate: f.abr ? Math.round(f.abr) : undefined,
+        mimeType: hasVideo && hasAudio
+          ? `video/${f.ext}; codecs="${f.vcodec}, ${f.acodec}"`
+          : hasVideo
+            ? `video/${f.ext}; codecs="${f.vcodec}"`
+            : `audio/${f.ext}; codecs="${f.acodec}"`,
+        protocol: f.protocol,
+      }
+    })
+    .sort((a: VideoFormat, b: VideoFormat) => {
       const aQuality = parseInt(a.qualityLabel) || 0
       const bQuality = parseInt(b.qualityLabel) || 0
       return bQuality - aQuality
@@ -112,78 +146,58 @@ export const AUDIO_QUALITY_PRESETS = [
   { label: "64kbps", itag: 250 },
 ] as const
 
-// Create video stream using yt-dlp (more reliable for all formats)
-// For video-only formats, this will NOT merge audio (use createMergedStream for that)
+// Stream a specific format by itag
 export function createVideoStream(videoId: string, itag: number): Readable {
   const url = `https://www.youtube.com/watch?v=${videoId}`
+  const args = [...baseArgs(), "-f", itag.toString(), "-o", "-", url]
 
-  const args = [
-    "-f", itag.toString(),
-    "-o", "-", // Output to stdout
-    "--no-warnings",
-    "--no-playlist",
-    url,
-  ]
+  const proc = spawn(YT_DLP_PATH, args)
 
-  const ytDlp = spawn(YT_DLP_PATH, args)
-
-  ytDlp.stderr.on("data", (data: Buffer) => {
-    console.error("yt-dlp stderr:", data.toString())
+  proc.stderr.on("data", (data: Buffer) => {
+    console.error("yt-dlp:", data.toString().trim())
   })
 
-  ytDlp.on("error", (err) => {
+  proc.on("error", (err) => {
     console.error("yt-dlp spawn error:", err)
   })
 
-  return ytDlp.stdout
+  return proc.stdout
 }
 
-// Create merged video+audio stream by quality (e.g., "1080", "720", "480")
-// Downloads to temp file, merges, then streams the result
+// Download and merge video+audio by quality (e.g., "1080", "720")
 export function createMergedStream(videoId: string, quality: string): Readable {
   const url = `https://www.youtube.com/watch?v=${videoId}`
-  const tmpDir = "/tmp"
-  const tmpFile = join(tmpDir, `yt-${videoId}-${quality}-${Date.now()}.mp4`)
+  const tmpFile = join("/tmp", `yt-${videoId}-${quality}-${Date.now()}.mp4`)
 
-  // Format: best video at specified height + best audio, fallback to best
+  // Format selector: best video at height + best audio, with fallbacks
   const formatStr = `bestvideo[height<=${quality}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=${quality}]+bestaudio/best[height<=${quality}]/best`
 
   const args = [
+    ...baseArgs(),
     "-f", formatStr,
     "-o", tmpFile,
-    "--no-warnings",
-    "--no-playlist",
     "--merge-output-format", "mp4",
     url,
   ]
 
-  // Create a passthrough stream that we'll pipe the file to after download
-  const { PassThrough } = require("stream")
   const outputStream = new PassThrough()
+  const proc = spawn(YT_DLP_PATH, args)
 
-  const ytDlp = spawn(YT_DLP_PATH, args)
-
-  ytDlp.stderr.on("data", (data: Buffer) => {
-    console.error("yt-dlp stderr:", data.toString())
+  proc.stderr.on("data", (data: Buffer) => {
+    console.error("yt-dlp:", data.toString().trim())
   })
 
-  ytDlp.on("error", (err) => {
+  proc.on("error", (err) => {
     console.error("yt-dlp spawn error:", err)
     outputStream.destroy(err)
   })
 
-  ytDlp.on("close", (code) => {
+  proc.on("close", (code) => {
     if (code === 0) {
-      // Download complete, stream the file
-      const { createReadStream, unlink } = require("fs")
       const fileStream = createReadStream(tmpFile)
 
-      fileStream.on("end", () => {
-        // Clean up temp file
-        unlink(tmpFile, () => {})
-      })
-
-      fileStream.on("error", (err: Error) => {
+      fileStream.on("end", () => unlink(tmpFile, () => {}))
+      fileStream.on("error", (err) => {
         outputStream.destroy(err)
         unlink(tmpFile, () => {})
       })
@@ -199,20 +213,6 @@ export function createMergedStream(videoId: string, quality: string): Readable {
 
 // Get format info for a specific itag
 export async function getFormatInfo(videoId: string, itag: number): Promise<VideoFormat | null> {
-  const info = await ytdl.getInfo(`https://www.youtube.com/watch?v=${videoId}`, { agent })
-  const format = info.formats.find((f) => f.itag === itag)
-
-  if (!format) return null
-
-  return {
-    itag: format.itag,
-    qualityLabel: format.qualityLabel || `${format.audioBitrate}kbps`,
-    container: format.container,
-    hasVideo: format.hasVideo,
-    hasAudio: format.hasAudio,
-    contentLength: format.contentLength,
-    bitrate: format.bitrate,
-    audioBitrate: format.audioBitrate,
-    mimeType: format.mimeType,
-  }
+  const formats = await getVideoFormats(videoId)
+  return formats.find((f) => f.itag === itag) || null
 }

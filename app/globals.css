@@ -19,10 +19,24 @@
   /* Status */
   --success: #4A7C59;
   --error: #B54548;
-  
+  /*  */
   /* Shadows */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.08);
+}
+
+.dark {
+  --background: #1C1917;
+  --surface: #292524;
+  --primary: #F87171;
+  --primary-hover: #FCA5A5;
+  --text-primary: #FAFAF9;
+  --text-secondary: #A8A29E;
+  --border: #44403C;
+  --success: #86EFAC;
+  --error: #FCA5A5;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
 }
 
 @theme inline {

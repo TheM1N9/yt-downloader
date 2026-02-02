@@ -1,7 +1,8 @@
 // Server-only caption utilities (uses yt-dlp CLI)
 import { execSync } from "child_process"
-import { existsSync } from "fs"
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "fs"
 import { join } from "path"
+import { tmpdir } from "os"
 import type { CaptionTrack } from "./caption"
 
 function getYtDlpPath(): string {
@@ -67,10 +68,42 @@ export async function getCaptionTracks(videoId: string): Promise<CaptionTrack[]>
   }
 }
 
-export async function fetchCaptionXml(baseUrl: string): Promise<string> {
-  const response = await fetch(baseUrl)
-  if (!response.ok) {
-    throw new Error("Failed to fetch captions")
+/** Fetch caption content via yt-dlp (avoids YouTube timedtext rate limits). Returns VTT string. */
+export function getCaptionContentViaYtDlp(
+  videoId: string,
+  langCode: string
+): string {
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
+  const tmpDir = mkdtempSync(join(tmpdir(), "ytcap-"))
+  try {
+    // Download all subs (no --sub-langs) so yt-dlp writes sub.<lang>.vtt for each;
+    // then pick the file matching langCode (e.g. en-orig, ab)
+    execSync(
+      [
+        YT_DLP_PATH,
+        "--no-warnings",
+        "--no-playlist",
+        "--skip-download",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-format",
+        "vtt",
+        "-o",
+        join(tmpDir, "sub"),
+        videoUrl,
+      ].join(" "),
+      { encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 }
+    )
+    const files = readdirSync(tmpDir).filter((f) => f.endsWith(".vtt"))
+    // yt-dlp names files as sub.<lang>.vtt (e.g. sub.en-orig.vtt, sub.en.vtt)
+    const vttFile = files.find((f) => f === `sub.${langCode}.vtt`)
+      ?? files.find((f) => f.startsWith(`sub.${langCode}.`))
+      ?? files[0]
+    if (!vttFile) {
+      throw new Error(`No VTT subtitle for lang ${langCode}`)
+    }
+    return readFileSync(join(tmpDir, vttFile), "utf-8")
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true })
   }
-  return response.text()
 }

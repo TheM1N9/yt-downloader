@@ -1,18 +1,22 @@
 import { NextRequest, NextResponse } from "next/server"
-import { fetchCaptionXml } from "@/lib/caption.server"
-import { parseCaptionXml } from "@/lib/caption"
+import { getCaptionContentViaYtDlp } from "@/lib/caption.server"
+import { parseVtt } from "@/lib/caption"
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
-  const url = searchParams.get("url")
+  const videoId = searchParams.get("videoId")
+  const lang = searchParams.get("lang")
 
-  if (!url) {
-    return NextResponse.json({ error: "Missing url" }, { status: 400 })
+  if (!videoId || !lang) {
+    return NextResponse.json(
+      { error: "Missing videoId or lang" },
+      { status: 400 }
+    )
   }
 
   try {
-    const xml = await fetchCaptionXml(url)
-    const entries = parseCaptionXml(xml)
+    const vtt = getCaptionContentViaYtDlp(videoId, lang)
+    const entries = parseVtt(vtt)
     return NextResponse.json({ entries })
   } catch (error) {
     console.error("Error fetching caption preview:", error)

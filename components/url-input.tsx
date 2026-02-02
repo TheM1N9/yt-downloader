@@ -7,39 +7,54 @@ import { cn } from "@/lib/utils"
 import { extractVideoId } from "@/lib/youtube"
 
 interface UrlInputProps {
-  onSubmit: (videoId: string) => void
+  onSubmit: (value: string) => void
   isLoading?: boolean
   placeholder?: string
   className?: string
+  /** When provided, used instead of YouTube extractVideoId (e.g. Instagram URL). */
+  extractValue?: (input: string) => string | null
+  invalidError?: string
 }
 
-export function UrlInput({ onSubmit, isLoading, placeholder = "Paste YouTube URL or video ID...", className }: UrlInputProps) {
+export function UrlInput({
+  onSubmit,
+  isLoading,
+  placeholder = "Paste YouTube URL or video ID...",
+  className,
+  extractValue,
+  invalidError = "Invalid YouTube URL or video ID",
+}: UrlInputProps) {
   const [url, setUrl] = useState("")
   const [error, setError] = useState<string | null>(null)
 
+  const resolve = useCallback(
+    (input: string) => (extractValue ? extractValue(input) : extractVideoId(input)),
+    [extractValue]
+  )
+
   const handleSubmit = useCallback(() => {
-    const videoId = extractVideoId(url)
-    if (!videoId) {
-      setError("Invalid YouTube URL or video ID")
+    const value = resolve(url)
+    if (!value) {
+      setError(invalidError)
       return
     }
     setError(null)
-    onSubmit(videoId)
-  }, [url, onSubmit])
+    onSubmit(value)
+  }, [url, onSubmit, resolve, invalidError])
 
   const handlePaste = useCallback(async () => {
     try {
       const text = await navigator.clipboard.readText()
       setUrl(text)
       setError(null)
-      const videoId = extractVideoId(text)
-      if (videoId) {
-        onSubmit(videoId)
+      const value = resolve(text)
+      if (value) {
+        onSubmit(value)
       }
     } catch {
       // Clipboard access denied
     }
-  }, [onSubmit])
+  }, [onSubmit, resolve])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

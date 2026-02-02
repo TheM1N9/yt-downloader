@@ -15,6 +15,24 @@ const FEATURES = [
     icon: VideoIcon,
   },
   {
+    href: "/instagram",
+    title: "Instagram Downloader",
+    description: "Download Instagram Reels, posts, and IGTV videos. Paste a URL and get the video file.",
+    icon: InstagramIcon,
+  },
+  {
+    href: "/twitter",
+    title: "Twitter / X Downloader",
+    description: "Download videos from Twitter (X) posts. Paste a tweet URL and get the video file.",
+    icon: TwitterIcon,
+  },
+  {
+    href: "/tiktok",
+    title: "TikTok Downloader",
+    description: "Download TikTok videos. Paste a video URL or short link (vm.tiktok.com) to get the file.",
+    icon: TiktokIcon,
+  },
+  {
     href: "/caption",
     title: "Caption Downloader",
     description: "Extract captions and subtitles from YouTube videos. Export as SRT, VTT, or plain text.",
@@ -29,10 +47,10 @@ export default function HomePage() {
         {/* Hero */}
         <section className="text-center space-y-4">
           <h1 className="text-4xl font-bold text-text-primary tracking-tight">
-            YouTube Downloader
+            Media Grab
           </h1>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-            A clean, professional tool for downloading thumbnails, videos, and captions from YouTube.
+            Download videos and thumbnails from YouTube, Instagram, TikTok, Twitter, and more. Paste a URL and grab the file.
           </p>
         </section>
 
@@ -68,8 +86,8 @@ export default function HomePage() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {[
-              { step: "1", title: "Paste URL", description: "Copy any YouTube video URL and paste it into the input field." },
-              { step: "2", title: "Choose Format", description: "Select the format and quality that suits your needs." },
+              { step: "1", title: "Paste URL", description: "Copy a video URL from YouTube, Instagram, TikTok, Twitter, or another supported site." },
+              { step: "2", title: "Preview & choose", description: "See the video info and pick format or quality where available." },
               { step: "3", title: "Download", description: "Click download and save the file directly to your device." },
             ].map((item) => (
               <div key={item.step} className="text-center">
@@ -102,6 +120,32 @@ function VideoIcon({ className }: { className?: string }) {
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" />
       <rect x="2" y="6" width="14" height="12" rx="2" />
+    </svg>
+  )
+}
+
+function InstagramIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
+      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+    </svg>
+  )
+}
+
+function TwitterIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  )
+}
+
+function TiktokIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z" />
     </svg>
   )
 }

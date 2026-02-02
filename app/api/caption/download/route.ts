@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-import { fetchCaptionXml } from "@/lib/caption.server"
+import { getCaptionContentViaYtDlp } from "@/lib/caption.server"
 import {
-  parseCaptionXml,
+  parseVtt,
   convertCaptions,
   CAPTION_FORMATS,
   type CaptionFormat,
@@ -9,13 +9,15 @@ import {
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
-  const url = searchParams.get("url")
-  const format = searchParams.get("format") as CaptionFormat
   const videoId = searchParams.get("videoId")
   const lang = searchParams.get("lang")
+  const format = searchParams.get("format") as CaptionFormat
 
-  if (!url) {
-    return NextResponse.json({ error: "Missing url" }, { status: 400 })
+  if (!videoId || !lang) {
+    return NextResponse.json(
+      { error: "Missing videoId or lang" },
+      { status: 400 }
+    )
   }
 
   if (!format || !CAPTION_FORMATS.includes(format)) {
@@ -23,8 +25,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const xml = await fetchCaptionXml(url)
-    const entries = parseCaptionXml(xml)
+    const vtt = getCaptionContentViaYtDlp(videoId, lang)
+    const entries = parseVtt(vtt)
     const content = convertCaptions(entries, format)
 
     const mimeTypes: Record<CaptionFormat, string> = {
@@ -33,7 +35,7 @@ export async function GET(request: NextRequest) {
       txt: "text/plain",
     }
 
-    const filename = `${videoId || "captions"}_${lang || "en"}.${format}`
+    const filename = `${videoId}_${lang}.${format}`
 
     return new NextResponse(content, {
       headers: {

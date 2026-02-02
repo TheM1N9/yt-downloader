@@ -1,8 +1,11 @@
 import type { Metadata } from "next"
+import Script from "next/script"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Nav } from "@/components/nav"
 import { Footer } from "@/components/footer"
 import "./globals.css"
+
+const THEME_INIT_SCRIPT = `(function(){var k='theme';var t=localStorage.getItem(k)||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);})();`
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,8 +18,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "YT Downloader - Download YouTube Thumbnails, Videos & Captions",
-  description: "A clean, professional tool for downloading YouTube thumbnails, videos, and captions.",
+  title: "Media Grab - Download Videos from YouTube, Instagram, TikTok, Twitter",
+  description: "Download videos and thumbnails from YouTube, Instagram, TikTok, Twitter (X), and more. Paste a URL and grab the file.",
 }
 
 export default function RootLayout({
@@ -25,7 +28,12 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <Script
+        id="theme-init"
+        strategy="beforeInteractive"
+        dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+      />
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col`}
       >

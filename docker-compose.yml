@@ -1,0 +1,13 @@
+services:
+  yt-downloader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    # Optional: mount cookies file for authenticated downloads
+    # volumes:
+    #   - ./cookies.txt:/app/cookies.txt:ro
+    restart: unless-stopped

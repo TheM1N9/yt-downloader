@@ -1,69 +1,14 @@
-import { spawn, execSync, SpawnOptions } from "child_process"
-import { createReadStream, existsSync, unlink } from "fs"
+import { spawn } from "child_process"
+import { createReadStream, unlink } from "fs"
 import { join } from "path"
 import { Readable, PassThrough } from "stream"
-
-// Find yt-dlp binary
-function getYtDlpPath(): string {
-  const paths = [
-    join(process.env.HOME || "", ".local/bin/yt-dlp"),
-    "/usr/local/bin/yt-dlp",
-    "/opt/homebrew/bin/yt-dlp",
-    "yt-dlp",
-  ]
-  for (const p of paths) {
-    if (p === "yt-dlp" || existsSync(p)) return p
-  }
-  return "yt-dlp"
-}
-
-const YT_DLP_PATH = getYtDlpPath()
-
-// Build PATH with Deno for HLS support
-function getEnvWithDeno(): NodeJS.ProcessEnv {
-  const denoPath = join(process.env.HOME || "", ".deno/bin")
-  const currentPath = process.env.PATH || ""
-  return {
-    ...process.env,
-    PATH: `${denoPath}:${currentPath}`,
-  }
-}
-
-const envWithDeno = getEnvWithDeno()
-
-// Cookies file path (Netscape format)
-function getCookiesPath(): string | undefined {
-  const cookiesPath = join(process.cwd(), "cookies.txt")
-  return existsSync(cookiesPath) ? cookiesPath : undefined
-}
-
-const cookiesPath = getCookiesPath()
-
-// Base args for all yt-dlp calls
-function baseArgs(): string[] {
-  const args = ["--no-warnings", "--no-playlist"]
-  if (cookiesPath) args.push("--cookies", cookiesPath)
-  return args
-}
-
-// Spawn options with Deno in PATH and stdio pipes
-function spawnOpts(): SpawnOptions {
-  return { env: envWithDeno, stdio: ["pipe", "pipe", "pipe"] }
-}
-
-// Execute yt-dlp and parse JSON output
-function execYtDlp(videoId: string): any {
-  const url = `https://www.youtube.com/watch?v=${videoId}`
-  const args = [...baseArgs(), "-j", url]
-
-  const output = execSync([YT_DLP_PATH, ...args].join(" "), {
-    encoding: "utf-8",
-    maxBuffer: 50 * 1024 * 1024,
-    env: envWithDeno,
-  })
-
-  return JSON.parse(output)
-}
+import {
+  YT_DLP_PATH,
+  baseArgs,
+  spawnOpts,
+  execYtDlpJsonCached,
+  videoInfoCache,
+} from "./yt-dlp"
 
 export interface VideoInfo {
   id: string
@@ -90,54 +35,69 @@ export interface VideoFormat {
 }
 
 export async function getVideoInfo(videoId: string): Promise<VideoInfo> {
-  const info = execYtDlp(videoId)
+  const url = `https://www.youtube.com/watch?v=${videoId}`
+  const cacheKey = `yt:info:${videoId}`
+
+  const info = await execYtDlpJsonCached(url, cacheKey)
 
   return {
-    id: info.id,
-    title: info.title,
-    description: info.description || "",
-    lengthSeconds: info.duration || 0,
-    viewCount: info.view_count || 0,
-    channelName: info.channel || info.uploader || "",
-    channelUrl: info.channel_url || info.uploader_url || "",
-    thumbnail: info.thumbnail || info.thumbnails?.[info.thumbnails.length - 1]?.url || "",
-    publishDate: info.upload_date || "",
+    id: info.id as string,
+    title: info.title as string,
+    description: (info.description as string) || "",
+    lengthSeconds: (info.duration as number) || 0,
+    viewCount: (info.view_count as number) || 0,
+    channelName: (info.channel as string) || (info.uploader as string) || "",
+    channelUrl: (info.channel_url as string) || (info.uploader_url as string) || "",
+    thumbnail:
+      (info.thumbnail as string) ||
+      (info.thumbnails as { url: string }[])?.[
+        (info.thumbnails as { url: string }[])?.length - 1
+      ]?.url ||
+      "",
+    publishDate: (info.upload_date as string) || "",
   }
 }
 
 export async function getVideoFormats(videoId: string): Promise<VideoFormat[]> {
-  const info = execYtDlp(videoId)
-  const formats = info.formats || []
+  const url = `https://www.youtube.com/watch?v=${videoId}`
+  const cacheKey = `yt:info:${videoId}`
+
+  const info = await execYtDlpJsonCached(url, cacheKey)
+  const formats = (info.formats as Record<string, unknown>[]) || []
 
   return formats
-    .filter((f: any) => f.format_id && (f.vcodec !== "none" || f.acodec !== "none"))
-    .map((f: any) => {
-      const hasVideo = f.vcodec !== "none" && !!f.vcodec
-      const hasAudio = f.acodec !== "none" && !!f.acodec
+    .filter(
+      (f) =>
+        f.format_id && ((f.vcodec as string) !== "none" || (f.acodec as string) !== "none")
+    )
+    .map((f) => {
+      const hasVideo = (f.vcodec as string) !== "none" && !!(f.vcodec as string)
+      const hasAudio = (f.acodec as string) !== "none" && !!(f.acodec as string)
 
       let qualityLabel = ""
       if (hasVideo && f.height) {
         qualityLabel = `${f.height}p`
       } else if (hasAudio && f.abr) {
-        qualityLabel = `${Math.round(f.abr)}kbps`
+        qualityLabel = `${Math.round(f.abr as number)}kbps`
       } else if (f.format_note) {
-        qualityLabel = f.format_note
+        qualityLabel = f.format_note as string
       }
 
       return {
-        itag: parseInt(f.format_id) || 0,
+        itag: parseInt(f.format_id as string) || 0,
         qualityLabel,
-        container: f.ext || "",
+        container: (f.ext as string) || "",
         hasVideo,
         hasAudio,
-        bitrate: f.tbr ? Math.round(f.tbr * 1000) : undefined,
-        audioBitrate: f.abr ? Math.round(f.abr) : undefined,
-        mimeType: hasVideo && hasAudio
-          ? `video/${f.ext}; codecs="${f.vcodec}, ${f.acodec}"`
-          : hasVideo
-            ? `video/${f.ext}; codecs="${f.vcodec}"`
-            : `audio/${f.ext}; codecs="${f.acodec}"`,
-        protocol: f.protocol,
+        bitrate: f.tbr ? Math.round((f.tbr as number) * 1000) : undefined,
+        audioBitrate: f.abr ? Math.round(f.abr as number) : undefined,
+        mimeType:
+          hasVideo && hasAudio
+            ? `video/${f.ext}; codecs="${f.vcodec}, ${f.acodec}"`
+            : hasVideo
+              ? `video/${f.ext}; codecs="${f.vcodec}"`
+              : `audio/${f.ext}; codecs="${f.acodec}"`,
+        protocol: f.protocol as string | undefined,
       }
     })
     .sort((a: VideoFormat, b: VideoFormat) => {
@@ -202,9 +162,12 @@ export function createMergedStream(videoId: string, quality: string): Readable {
 
   const args = [
     ...baseArgs(),
-    "-f", formatStr,
-    "-o", tmpFile,
-    "--merge-output-format", "mp4",
+    "-f",
+    formatStr,
+    "-o",
+    tmpFile,
+    "--merge-output-format",
+    "mp4",
     url,
   ]
 
@@ -241,7 +204,10 @@ export function createMergedStream(videoId: string, quality: string): Readable {
 }
 
 // Get format info for a specific itag
-export async function getFormatInfo(videoId: string, itag: number): Promise<VideoFormat | null> {
+export async function getFormatInfo(
+  videoId: string,
+  itag: number
+): Promise<VideoFormat | null> {
   const formats = await getVideoFormats(videoId)
   return formats.find((f) => f.itag === itag) || null
 }

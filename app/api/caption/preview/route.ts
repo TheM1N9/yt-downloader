@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const vtt = getCaptionContentViaYtDlp(videoId, lang)
+    const vtt = await getCaptionContentViaYtDlp(videoId, lang)
     const entries = parseVtt(vtt)
     return NextResponse.json({ entries })
   } catch (error) {

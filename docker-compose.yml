@@ -7,7 +7,27 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+    # Resource limits - adjust based on your hardware
+    deploy:
+      resources:
+        limits:
+          cpus: "8"
+          memory: 16G
+        reservations:
+          cpus: "2"
+          memory: 2G
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     # Optional: mount cookies file for authenticated downloads
     # volumes:
     #   - ./cookies.txt:/app/cookies.txt:ro
     restart: unless-stopped
+
+# For scaling to multiple instances, use:
+# docker compose up -d --scale yt-downloader=4
+# Then add a load balancer (nginx/traefik) in front

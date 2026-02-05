@@ -2,7 +2,7 @@
 
 import { Card } from "@/components/ui/card"
 import { formatDuration, formatNumber } from "@/lib/utils"
-import type { VideoInfo } from "@/lib/video"
+import type { VideoInfo } from "@/lib/video.types"
 
 interface VideoInfoCardProps {
   video: VideoInfo

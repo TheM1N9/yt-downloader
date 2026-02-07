@@ -3,11 +3,16 @@
 import { useState, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import type { VideoFormat } from "@/lib/video"
+import {
+  VIDEO_ENCODINGS,
+  VIDEO_ENCODING_LABELS,
+  type VideoFormat,
+  type VideoEncoding,
+} from "@/lib/video.types"
 
 interface FormatSelectorProps {
   formats: VideoFormat[]
-  onDownload: (format: VideoFormat) => void
+  onDownload: (format: VideoFormat, encoding: VideoEncoding) => void
   isDownloading: boolean
   downloadingItag: number | null
 }
@@ -27,6 +32,7 @@ export function FormatSelector({
 }: FormatSelectorProps) {
   const [mediaType, setMediaType] = useState<MediaType>("video")
   const [selectedQuality, setSelectedQuality] = useState<string>("")
+  const [selectedEncoding, setSelectedEncoding] = useState<VideoEncoding>("original")
 
   // Process formats into quality options
   const { videoQualities, audioQualities } = useMemo(() => {
@@ -112,7 +118,7 @@ export function FormatSelector({
 
   const handleDownload = () => {
     if (selectedFormat) {
-      onDownload(selectedFormat)
+      onDownload(selectedFormat, selectedEncoding)
     }
   }
 
@@ -172,6 +178,38 @@ export function FormatSelector({
             </div>
           </div>
         </div>
+
+        {/* Encoding Selector - Only for video */}
+        {mediaType === "video" && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-text-primary">
+              Video Format
+            </label>
+            <div className="relative">
+              <select
+                value={selectedEncoding}
+                onChange={(e) => setSelectedEncoding(e.target.value as VideoEncoding)}
+                className="w-full h-11 px-4 pr-10 rounded-lg border border-border bg-background text-text-primary appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+              >
+                {VIDEO_ENCODINGS.map((encoding) => (
+                  <option key={encoding} value={encoding}>
+                    {VIDEO_ENCODING_LABELS[encoding]}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
+            {selectedEncoding === "h264" && (
+              <p className="text-xs text-text-secondary">
+                Re-encodes video with H.264 codec for YouTube compatibility. Takes longer but ensures maximum compatibility.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Loading Animation */}
         {isDownloading && (

@@ -5,7 +5,7 @@ import { UrlInput } from "@/components/url-input"
 import { VideoInfoCard } from "@/components/video-info-card"
 import { FormatSelector } from "@/components/format-selector"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import type { VideoInfo, VideoFormat } from "@/lib/video"
+import type { VideoInfo, VideoFormat, VideoEncoding } from "@/lib/video.types"
 
 export default function VideoPage() {
   const [videoId, setVideoId] = useState<string | null>(null)
@@ -40,7 +40,7 @@ export default function VideoPage() {
   }, [])
 
   const handleDownload = useCallback(
-    async (format: VideoFormat) => {
+    async (format: VideoFormat, encoding: VideoEncoding = "original") => {
       if (!videoId) return
 
       setIsDownloading(true)
@@ -57,6 +57,10 @@ export default function VideoPage() {
         })
         if (isVideoOnly) {
           params.set("mergeAudio", "true")
+        }
+        // Add encoding parameter for video downloads
+        if (format.hasVideo && encoding !== "original") {
+          params.set("encode", encoding)
         }
         const downloadUrl = `/api/video/download?${params.toString()}`
 

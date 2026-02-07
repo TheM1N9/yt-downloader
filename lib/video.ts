@@ -1,5 +1,5 @@
-import { spawn } from "child_process"
-import { createReadStream, unlink } from "fs"
+import { spawn, type ChildProcess } from "child_process"
+import { createReadStream, unlink, existsSync } from "fs"
 import { join } from "path"
 import { Readable, PassThrough } from "stream"
 import {
@@ -7,32 +7,39 @@ import {
   baseArgs,
   spawnOpts,
   execYtDlpJsonCached,
-  videoInfoCache,
+  getEnvWithDeno,
 } from "./yt-dlp"
 
-export interface VideoInfo {
-  id: string
-  title: string
-  description: string
-  lengthSeconds: number
-  viewCount: number
-  channelName: string
-  channelUrl: string
-  thumbnail: string
-  publishDate: string
+// Re-export types and constants from video.types.ts for backward compatibility
+export {
+  VIDEO_ENCODINGS,
+  VIDEO_ENCODING_LABELS,
+  VIDEO_QUALITY_PRESETS,
+  AUDIO_QUALITY_PRESETS,
+  type VideoInfo,
+  type VideoFormat,
+  type VideoEncoding,
+} from "./video.types"
+
+import type { VideoInfo, VideoFormat } from "./video.types"
+
+/**
+ * Find ffmpeg path
+ */
+function findFfmpegPath(): string {
+  const paths = [
+    "/usr/bin/ffmpeg",
+    "/usr/local/bin/ffmpeg",
+    "/opt/homebrew/bin/ffmpeg",
+    "ffmpeg",
+  ]
+  for (const p of paths) {
+    if (p === "ffmpeg" || existsSync(p)) return p
+  }
+  return "ffmpeg"
 }
 
-export interface VideoFormat {
-  itag: number
-  qualityLabel: string
-  container: string
-  hasVideo: boolean
-  hasAudio: boolean
-  bitrate?: number
-  audioBitrate?: number
-  mimeType?: string
-  protocol?: string
-}
+const FFMPEG_PATH = findFfmpegPath()
 
 export async function getVideoInfo(videoId: string): Promise<VideoInfo> {
   const url = `https://www.youtube.com/watch?v=${videoId}`
@@ -106,23 +113,6 @@ export async function getVideoFormats(videoId: string): Promise<VideoFormat[]> {
       return bQuality - aQuality
     })
 }
-
-// Format presets for UI
-export const VIDEO_QUALITY_PRESETS = [
-  { label: "1080p", itag: 137, hasAudio: false },
-  { label: "720p", itag: 136, hasAudio: false },
-  { label: "720p", itag: 22, hasAudio: true },
-  { label: "480p", itag: 135, hasAudio: false },
-  { label: "360p", itag: 18, hasAudio: true },
-  { label: "360p", itag: 134, hasAudio: false },
-] as const
-
-export const AUDIO_QUALITY_PRESETS = [
-  { label: "256kbps", itag: 141 },
-  { label: "128kbps", itag: 140 },
-  { label: "128kbps", itag: 251 },
-  { label: "64kbps", itag: 250 },
-] as const
 
 // Stream a specific format by itag
 export function createVideoStream(videoId: string, itag: number): Readable {
@@ -210,4 +200,170 @@ export async function getFormatInfo(
 ): Promise<VideoFormat | null> {
   const formats = await getVideoFormats(videoId)
   return formats.find((f) => f.itag === itag) || null
+}
+
+// ============================================================================
+// H264 ENCODING
+// ============================================================================
+
+/**
+ * Download video and re-encode to H.264 format
+ * This creates a YouTube-compatible MP4 with:
+ * - Video: H.264 (libx264) with high compatibility profile
+ * - Audio: AAC
+ * - Container: MP4 with faststart for web streaming
+ */
+export function createH264EncodedStream(
+  videoId: string,
+  quality: string
+): Readable {
+  const url = `https://www.youtube.com/watch?v=${videoId}`
+  const timestamp = Date.now()
+  const tmpInputFile = join("/tmp", `yt-${videoId}-${quality}-${timestamp}-input.mp4`)
+  const tmpOutputFile = join("/tmp", `yt-${videoId}-${quality}-${timestamp}-h264.mp4`)
+
+  // Format selector for yt-dlp - same as createMergedStream
+  const formatStr = [
+    `best[protocol=m3u8][height<=${quality}]`,
+    `bestvideo[height<=${quality}][ext=mp4]+bestaudio[ext=m4a]`,
+    `bestvideo[height<=${quality}]+bestaudio`,
+    `best[height<=${quality}]`,
+    `best`,
+  ].join("/")
+
+  const ytDlpArgs = [
+    ...baseArgs(),
+    "-f",
+    formatStr,
+    "-o",
+    tmpInputFile,
+    "--merge-output-format",
+    "mp4",
+    url,
+  ]
+
+  const outputStream = new PassThrough()
+  let ffmpegProcRef: ChildProcess | null = null
+  let cleanupDone = false
+
+  const killProc = (proc: ChildProcess | null) => {
+    if (proc && !proc.killed) proc.kill("SIGKILL")
+  }
+
+  const doCleanup = () => {
+    if (cleanupDone) return
+    cleanupDone = true
+    killProc(ytDlpProc)
+    killProc(ffmpegProcRef)
+    cleanup(tmpInputFile, tmpOutputFile)
+  }
+
+  outputStream.on("close", () => {
+    doCleanup()
+  })
+
+  outputStream.on("error", (err) => {
+    doCleanup()
+    outputStream.destroy(err)
+  })
+
+  // Step 1: Download the video using yt-dlp
+  const ytDlpProc = spawn(YT_DLP_PATH, ytDlpArgs, spawnOpts())
+
+  ytDlpProc.stderr?.on("data", (data: Buffer) => {
+    console.error("yt-dlp:", data.toString().trim())
+  })
+
+  ytDlpProc.on("error", (err) => {
+    console.error("yt-dlp spawn error:", err)
+    doCleanup()
+    outputStream.destroy(err)
+  })
+
+  ytDlpProc.on("close", (code) => {
+    if (cleanupDone) return
+    if (code !== 0) {
+      doCleanup()
+      outputStream.destroy(new Error(`yt-dlp exited with code ${code}`))
+      return
+    }
+
+    // Step 2: Re-encode to H.264 using ffmpeg
+    const ffmpegArgs = [
+      "-i", tmpInputFile,
+      "-c:v", "libx264",        // H.264 video codec
+      "-preset", "medium",      // Encoding speed/quality balance
+      "-crf", "23",             // Quality (18-28 is good, lower = better quality)
+      "-profile:v", "high",     // H.264 profile for maximum compatibility
+      "-level:v", "4.1",        // H.264 level for 1080p support
+      "-pix_fmt", "yuv420p",    // Pixel format for maximum compatibility
+      "-c:a", "aac",            // AAC audio codec
+      "-b:a", "192k",           // Audio bitrate
+      "-ar", "48000",           // Audio sample rate (YouTube standard)
+      "-ac", "2",               // Stereo audio
+      "-movflags", "+faststart", // Move moov atom for streaming
+      "-y",                     // Overwrite output
+      tmpOutputFile,
+    ]
+
+    console.log(`Starting H264 encoding for video ${videoId}`)
+    const ffmpegProc = spawn(FFMPEG_PATH, ffmpegArgs, {
+      env: getEnvWithDeno(),
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    ffmpegProcRef = ffmpegProc
+
+    ffmpegProc.stderr?.on("data", (data: Buffer) => {
+      const message = data.toString().trim()
+      // Only log progress updates occasionally
+      if (message.includes("frame=") || message.includes("time=")) {
+        console.log("ffmpeg progress:", message.split("\n").pop())
+      }
+    })
+
+    ffmpegProc.on("error", (err) => {
+      console.error("ffmpeg spawn error:", err)
+      doCleanup()
+      outputStream.destroy(err)
+    })
+
+    ffmpegProc.on("close", (ffmpegCode) => {
+      if (cleanupDone) return
+      // Clean up input file
+      unlink(tmpInputFile, () => {})
+
+      if (ffmpegCode !== 0) {
+        doCleanup()
+        outputStream.destroy(new Error(`ffmpeg exited with code ${ffmpegCode}`))
+        return
+      }
+
+      console.log(`H264 encoding complete for video ${videoId}`)
+
+      // Stream the encoded file
+      const fileStream = createReadStream(tmpOutputFile)
+
+      fileStream.on("end", () => {
+        unlink(tmpOutputFile, () => {})
+      })
+
+      fileStream.on("error", (err) => {
+        outputStream.destroy(err)
+        unlink(tmpOutputFile, () => {})
+      })
+
+      fileStream.pipe(outputStream)
+    })
+  })
+
+  return outputStream
+}
+
+/**
+ * Cleanup temporary files
+ */
+function cleanup(...files: string[]) {
+  for (const file of files) {
+    unlink(file, () => {})
+  }
 }

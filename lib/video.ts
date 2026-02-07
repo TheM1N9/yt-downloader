@@ -1,4 +1,4 @@
-import { spawn } from "child_process"
+import { spawn, type ChildProcess } from "child_process"
 import { createReadStream, unlink, existsSync } from "fs"
 import { join } from "path"
 import { Readable, PassThrough } from "stream"
@@ -243,6 +243,29 @@ export function createH264EncodedStream(
   ]
 
   const outputStream = new PassThrough()
+  let ffmpegProcRef: ChildProcess | null = null
+  let cleanupDone = false
+
+  const killProc = (proc: ChildProcess | null) => {
+    if (proc && !proc.killed) proc.kill("SIGKILL")
+  }
+
+  const doCleanup = () => {
+    if (cleanupDone) return
+    cleanupDone = true
+    killProc(ytDlpProc)
+    killProc(ffmpegProcRef)
+    cleanup(tmpInputFile, tmpOutputFile)
+  }
+
+  outputStream.on("close", () => {
+    doCleanup()
+  })
+
+  outputStream.on("error", (err) => {
+    doCleanup()
+    outputStream.destroy(err)
+  })
 
   // Step 1: Download the video using yt-dlp
   const ytDlpProc = spawn(YT_DLP_PATH, ytDlpArgs, spawnOpts())
@@ -253,14 +276,15 @@ export function createH264EncodedStream(
 
   ytDlpProc.on("error", (err) => {
     console.error("yt-dlp spawn error:", err)
+    doCleanup()
     outputStream.destroy(err)
-    cleanup(tmpInputFile, tmpOutputFile)
   })
 
   ytDlpProc.on("close", (code) => {
+    if (cleanupDone) return
     if (code !== 0) {
+      doCleanup()
       outputStream.destroy(new Error(`yt-dlp exited with code ${code}`))
-      cleanup(tmpInputFile, tmpOutputFile)
       return
     }
 
@@ -287,6 +311,7 @@ export function createH264EncodedStream(
       env: getEnvWithDeno(),
       stdio: ["pipe", "pipe", "pipe"],
     })
+    ffmpegProcRef = ffmpegProc
 
     ffmpegProc.stderr?.on("data", (data: Buffer) => {
       const message = data.toString().trim()
@@ -298,17 +323,18 @@ export function createH264EncodedStream(
 
     ffmpegProc.on("error", (err) => {
       console.error("ffmpeg spawn error:", err)
+      doCleanup()
       outputStream.destroy(err)
-      cleanup(tmpInputFile, tmpOutputFile)
     })
 
     ffmpegProc.on("close", (ffmpegCode) => {
+      if (cleanupDone) return
       // Clean up input file
       unlink(tmpInputFile, () => {})
 
       if (ffmpegCode !== 0) {
+        doCleanup()
         outputStream.destroy(new Error(`ffmpeg exited with code ${ffmpegCode}`))
-        cleanup(tmpInputFile, tmpOutputFile)
         return
       }
 

@@ -6,6 +6,7 @@ import { VideoInfoCard } from "@/components/video-info-card"
 import { FormatSelector } from "@/components/format-selector"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import type { VideoInfo, VideoFormat, VideoEncoding } from "@/lib/video.types"
+import type { ClipRange } from "@/components/clip-range-selector"
 
 export default function VideoPage() {
   const [videoId, setVideoId] = useState<string | null>(null)
@@ -40,7 +41,7 @@ export default function VideoPage() {
   }, [])
 
   const handleDownload = useCallback(
-    async (format: VideoFormat, encoding: VideoEncoding = "original") => {
+    async (format: VideoFormat, encoding: VideoEncoding = "original", clipRange?: ClipRange | null) => {
       if (!videoId) return
 
       setIsDownloading(true)
@@ -61,6 +62,11 @@ export default function VideoPage() {
         // Add encoding parameter for video downloads
         if (format.hasVideo && encoding !== "original") {
           params.set("encode", encoding)
+        }
+        // Add clip range parameters
+        if (clipRange) {
+          params.set("startTime", clipRange.startSeconds.toString())
+          params.set("endTime", clipRange.endSeconds.toString())
         }
         const downloadUrl = `/api/video/download?${params.toString()}`
 
@@ -149,6 +155,7 @@ export default function VideoPage() {
             onDownload={handleDownload}
             isDownloading={isDownloading}
             downloadingItag={downloadingItag}
+            durationSeconds={videoInfo?.lengthSeconds ?? 0}
           />
         )}
 
@@ -159,7 +166,8 @@ export default function VideoPage() {
               <p className="text-sm text-text-secondary">
                 <strong className="text-text-primary">Note:</strong> All downloads are
                 processed through the server. Video-only formats will automatically
-                be merged with the best available audio track.
+                be merged with the best available audio track. Use the &quot;Clip Video&quot;
+                toggle to download only a specific portion of the video.
               </p>
             </CardContent>
           </Card>

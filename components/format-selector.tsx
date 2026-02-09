@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { ClipRangeSelector, type ClipRange } from "@/components/clip-range-selector"
 import {
   VIDEO_ENCODINGS,
   VIDEO_ENCODING_LABELS,
@@ -12,9 +13,11 @@ import {
 
 interface FormatSelectorProps {
   formats: VideoFormat[]
-  onDownload: (format: VideoFormat, encoding: VideoEncoding) => void
+  onDownload: (format: VideoFormat, encoding: VideoEncoding, clipRange?: ClipRange | null) => void
   isDownloading: boolean
   downloadingItag: number | null
+  /** Total video duration in seconds (needed for clip range validation) */
+  durationSeconds?: number
 }
 
 type MediaType = "video" | "audio"
@@ -29,10 +32,16 @@ export function FormatSelector({
   formats,
   onDownload,
   isDownloading,
+  durationSeconds = 0,
 }: FormatSelectorProps) {
   const [mediaType, setMediaType] = useState<MediaType>("video")
   const [selectedQuality, setSelectedQuality] = useState<string>("")
   const [selectedEncoding, setSelectedEncoding] = useState<VideoEncoding>("original")
+  const [clipRange, setClipRange] = useState<ClipRange | null>(null)
+
+  const handleClipRangeChange = useCallback((range: ClipRange | null) => {
+    setClipRange(range)
+  }, [])
 
   // Process formats into quality options
   const { videoQualities, audioQualities } = useMemo(() => {
@@ -118,7 +127,7 @@ export function FormatSelector({
 
   const handleDownload = () => {
     if (selectedFormat) {
-      onDownload(selectedFormat, selectedEncoding)
+      onDownload(selectedFormat, selectedEncoding, clipRange)
     }
   }
 
@@ -179,6 +188,14 @@ export function FormatSelector({
           </div>
         </div>
 
+        {/* Clip Range Selector */}
+        {durationSeconds > 0 && (
+          <ClipRangeSelector
+            durationSeconds={durationSeconds}
+            onClipRangeChange={handleClipRangeChange}
+          />
+        )}
+
         {/* Encoding Selector - Only for video */}
         {mediaType === "video" && (
           <div className="space-y-2">
@@ -229,10 +246,10 @@ export function FormatSelector({
               {/* Status text */}
               <div className="text-center">
                 <p className="text-text-primary font-medium">
-                  Downloading {mediaType === "video" ? "Video" : "Audio"}...
+                  {clipRange ? "Clipping & Downloading" : "Downloading"} {mediaType === "video" ? "Video" : "Audio"}...
                 </p>
                 <p className="text-text-secondary text-sm mt-1">
-                  {selectedQuality} • Please wait, this may take a moment
+                  {selectedQuality}{clipRange ? " (clip)" : ""} • Please wait, this may take a moment
                 </p>
               </div>
             </div>
@@ -246,7 +263,11 @@ export function FormatSelector({
           disabled={!selectedFormat || isDownloading}
           isLoading={isDownloading}
         >
-          {isDownloading ? "Downloading..." : `Download ${mediaType === "video" ? "Video" : "Audio"}`}
+          {isDownloading
+            ? (clipRange ? "Clipping & Downloading..." : "Downloading...")
+            : clipRange
+              ? `Download Clip (${mediaType === "video" ? "Video" : "Audio"})`
+              : `Download ${mediaType === "video" ? "Video" : "Audio"}`}
         </Button>
       </CardContent>
     </Card>

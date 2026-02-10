@@ -47,8 +47,10 @@ export async function getVideoInfo(videoId: string): Promise<VideoInfo> {
 
   const info = await execYtDlpJsonCached(url, cacheKey)
 
+  const id = info.id as string
   return {
-    id: info.id as string,
+    id,
+    videoId: id,
     title: info.title as string,
     description: (info.description as string) || "",
     lengthSeconds: (info.duration as number) || 0,
@@ -200,6 +202,161 @@ export async function getFormatInfo(
 ): Promise<VideoFormat | null> {
   const formats = await getVideoFormats(videoId)
   return formats.find((f) => f.itag === itag) || null
+}
+
+// ============================================================================
+// TIME-BASED CLIPPING
+// ============================================================================
+
+/**
+ * Download a video and clip it to a specific time range using ffmpeg.
+ *
+ * Strategy:
+ * 1. Download the full video using yt-dlp to a temp file (merged video+audio)
+ * 2. Use ffmpeg to extract the requested time range
+ * 3. Stream the clipped file back to the caller
+ *
+ * Uses `-c copy` for fast, lossless clipping when possible.
+ * Falls back to re-encoding only when the caller also requests H.264 encoding.
+ */
+export function createClippedStream(
+  videoId: string,
+  quality: string,
+  startSeconds: number,
+  endSeconds: number,
+): Readable {
+  const url = `https://www.youtube.com/watch?v=${videoId}`
+  const timestamp = Date.now()
+  const tmpInputFile = join("/tmp", `yt-${videoId}-${quality}-${timestamp}-clip-input.mp4`)
+  const tmpOutputFile = join("/tmp", `yt-${videoId}-${quality}-${timestamp}-clip-output.mp4`)
+
+  // Format selector for yt-dlp (same priority as createMergedStream)
+  const formatStr = [
+    `best[protocol=m3u8][height<=${quality}]`,
+    `bestvideo[height<=${quality}][ext=mp4]+bestaudio[ext=m4a]`,
+    `bestvideo[height<=${quality}]+bestaudio`,
+    `best[height<=${quality}]`,
+    `best`,
+  ].join("/")
+
+  const ytDlpArgs = [
+    ...baseArgs(),
+    "-f",
+    formatStr,
+    "-o",
+    tmpInputFile,
+    "--merge-output-format",
+    "mp4",
+    url,
+  ]
+
+  const outputStream = new PassThrough()
+  let ffmpegProcRef: ChildProcess | null = null
+  let cleanupDone = false
+
+  const killProc = (proc: ChildProcess | null) => {
+    if (proc && !proc.killed) proc.kill("SIGKILL")
+  }
+
+  const doCleanup = () => {
+    if (cleanupDone) return
+    cleanupDone = true
+    killProc(ytDlpProc)
+    killProc(ffmpegProcRef)
+    cleanup(tmpInputFile, tmpOutputFile)
+  }
+
+  outputStream.on("close", doCleanup)
+  outputStream.on("error", (err) => {
+    doCleanup()
+    outputStream.destroy(err)
+  })
+
+  // Step 1: Download the video
+  const ytDlpProc = spawn(YT_DLP_PATH, ytDlpArgs, spawnOpts())
+
+  ytDlpProc.stderr?.on("data", (data: Buffer) => {
+    console.error("yt-dlp:", data.toString().trim())
+  })
+
+  ytDlpProc.on("error", (err) => {
+    console.error("yt-dlp spawn error:", err)
+    doCleanup()
+    outputStream.destroy(err)
+  })
+
+  ytDlpProc.on("close", (code) => {
+    if (cleanupDone) return
+    if (code !== 0) {
+      doCleanup()
+      outputStream.destroy(new Error(`yt-dlp exited with code ${code}`))
+      return
+    }
+
+    // Step 2: Clip with ffmpeg using stream copy (fast, no re-encoding)
+    const ffmpegArgs = [
+      "-ss", startSeconds.toString(),
+      "-to", endSeconds.toString(),
+      "-i", tmpInputFile,
+      "-c", "copy",                   // Stream copy for speed
+      "-movflags", "+faststart",      // Move moov atom for web streaming
+      "-avoid_negative_ts", "make_zero",
+      "-y",
+      tmpOutputFile,
+    ]
+
+    console.log(
+      `Clipping video ${videoId} from ${startSeconds}s to ${endSeconds}s (${endSeconds - startSeconds}s)`
+    )
+    const ffmpegProc = spawn(FFMPEG_PATH, ffmpegArgs, {
+      env: getEnvWithDeno(),
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    ffmpegProcRef = ffmpegProc
+
+    ffmpegProc.stderr?.on("data", (data: Buffer) => {
+      const message = data.toString().trim()
+      if (message.includes("frame=") || message.includes("time=")) {
+        console.log("ffmpeg clip progress:", message.split("\n").pop())
+      }
+    })
+
+    ffmpegProc.on("error", (err) => {
+      console.error("ffmpeg spawn error:", err)
+      doCleanup()
+      outputStream.destroy(err)
+    })
+
+    ffmpegProc.on("close", (ffmpegCode) => {
+      if (cleanupDone) return
+      // Remove the full input file immediately
+      unlink(tmpInputFile, () => {})
+
+      if (ffmpegCode !== 0) {
+        doCleanup()
+        outputStream.destroy(new Error(`ffmpeg clipping exited with code ${ffmpegCode}`))
+        return
+      }
+
+      console.log(`Clipping complete for video ${videoId}`)
+
+      // Stream the clipped file
+      const fileStream = createReadStream(tmpOutputFile)
+
+      fileStream.on("end", () => {
+        unlink(tmpOutputFile, () => {})
+      })
+
+      fileStream.on("error", (err) => {
+        outputStream.destroy(err)
+        unlink(tmpOutputFile, () => {})
+      })
+
+      fileStream.pipe(outputStream)
+    })
+  })
+
+  return outputStream
 }
 
 // ============================================================================

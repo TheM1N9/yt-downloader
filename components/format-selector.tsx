@@ -1,20 +1,35 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { VideoClipSelector, type ClipRange } from "@/components/video-clip-selector"
 import {
   VIDEO_ENCODINGS,
   VIDEO_ENCODING_LABELS,
   type VideoFormat,
   type VideoEncoding,
 } from "@/lib/video.types"
+import { cn } from "@/lib/utils"
+import { 
+  Video, 
+  Music, 
+  Download, 
+  Scissors, 
+  Check, 
+  Settings2,
+  AlertCircle
+} from "lucide-react"
 
 interface FormatSelectorProps {
   formats: VideoFormat[]
-  onDownload: (format: VideoFormat, encoding: VideoEncoding) => void
+  onDownload: (format: VideoFormat, encoding: VideoEncoding, clipRange?: ClipRange | null) => void
   isDownloading: boolean
   downloadingItag: number | null
+  /** Total video duration in seconds (needed for clip range validation) */
+  durationSeconds?: number
+  /** YouTube video ID for clip preview */
+  videoId?: string
 }
 
 type MediaType = "video" | "audio"
@@ -23,16 +38,24 @@ interface QualityOption {
   label: string
   value: string
   format: VideoFormat
+  badge?: string
 }
 
 export function FormatSelector({
   formats,
   onDownload,
   isDownloading,
+  durationSeconds = 0,
+  videoId,
 }: FormatSelectorProps) {
   const [mediaType, setMediaType] = useState<MediaType>("video")
   const [selectedQuality, setSelectedQuality] = useState<string>("")
   const [selectedEncoding, setSelectedEncoding] = useState<VideoEncoding>("original")
+  const [clipRange, setClipRange] = useState<ClipRange | null>(null)
+
+  const handleClipRangeChange = useCallback((range: ClipRange | null) => {
+    setClipRange(range)
+  }, [])
 
   // Process formats into quality options
   const { videoQualities, audioQualities } = useMemo(() => {
@@ -53,9 +76,10 @@ export function FormatSelector({
 
     const videoQualities: QualityOption[] = Array.from(videoMap.entries())
       .map(([label, format]) => ({
-        label: `${label}${format.hasAudio ? "" : " "}`,
+        label: label,
         value: label,
         format,
+        badge: format.hasAudio ? undefined : "No Audio",
       }))
       .sort((a, b) => {
         const aNum = parseInt(a.value) || 0
@@ -75,9 +99,10 @@ export function FormatSelector({
 
     const audioQualities: QualityOption[] = Array.from(audioMap.entries())
       .map(([label, format]) => ({
-        label,
+        label: label.replace('kbps', ''),
         value: label,
         format,
+        badge: 'kbps'
       }))
       .sort((a, b) => {
         const aNum = parseInt(a.value) || 0
@@ -118,94 +143,136 @@ export function FormatSelector({
 
   const handleDownload = () => {
     if (selectedFormat) {
-      onDownload(selectedFormat, selectedEncoding)
+      onDownload(selectedFormat, selectedEncoding, clipRange)
     }
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-4">
-        <CardTitle>Download Options</CardTitle>
+    <Card className="overflow-hidden">
+      <CardHeader className="pb-4 border-b border-border/50 bg-surface/50">
+        <CardTitle className="flex items-center gap-2">
+          <Settings2 className="w-5 h-5 text-primary" />
+          Download Options
+        </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Media Type Selector */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-text-primary">
-            Download Type
+      
+      <CardContent className="space-y-8 pt-6">
+        {/* Media Type Selector (Segmented Control) */}
+        <div className="bg-surface border border-border p-1 rounded-lg flex">
+          <button
+            onClick={() => handleMediaTypeChange("video")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium rounded-md transition-all",
+              mediaType === "video"
+                ? "bg-primary text-white shadow-sm"
+                : "text-text-secondary hover:bg-background hover:text-text-primary"
+            )}
+          >
+            <Video className="w-4 h-4" />
+            Video
+          </button>
+          <button
+            onClick={() => handleMediaTypeChange("audio")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium rounded-md transition-all",
+              mediaType === "audio"
+                ? "bg-primary text-white shadow-sm"
+                : "text-text-secondary hover:bg-background hover:text-text-primary"
+            )}
+          >
+            <Music className="w-4 h-4" />
+            Audio
+          </button>
+        </div>
+
+        {/* Quality Selector (Grid) */}
+        <div className="space-y-3">
+          <label className="text-sm font-medium text-text-primary flex items-center justify-between">
+            <span>Select Quality</span>
+            <span className="text-xs text-text-secondary bg-surface px-2 py-0.5 rounded-full border border-border">
+              {currentQualities.length} options
+            </span>
           </label>
-          <div className="relative">
-            <select
-              value={mediaType}
-              onChange={(e) => handleMediaTypeChange(e.target.value as MediaType)}
-              className="w-full h-11 px-4 pr-10 rounded-lg border border-border bg-background text-text-primary appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
-            >
-              <option value="video">Video</option>
-              <option value="audio">Audio</option>
-            </select>
-            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-              <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
+          
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {currentQualities.length === 0 ? (
+              <div className="col-span-full py-8 text-center text-text-secondary bg-surface rounded-lg border border-border border-dashed">
+                <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                No {mediaType} formats available
+              </div>
+            ) : (
+              currentQualities.map((quality) => {
+                const isSelected = selectedQuality === quality.value
+                return (
+                  <button
+                    key={quality.value}
+                    onClick={() => setSelectedQuality(quality.value)}
+                    className={cn(
+                      "relative flex flex-col items-center justify-center p-3 rounded-lg border-2 transition-all",
+                      isSelected
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border bg-surface hover:border-primary/30 hover:bg-surface/80 text-text-secondary"
+                    )}
+                  >
+                    <span className="text-lg font-bold">{quality.label}</span>
+                    {quality.badge && (
+                      <span className="text-[10px] uppercase tracking-wider opacity-70">
+                        {quality.badge}
+                      </span>
+                    )}
+                    {isSelected && (
+                      <div className="absolute top-1.5 right-1.5">
+                        <Check className="w-3.5 h-3.5" />
+                      </div>
+                    )}
+                  </button>
+                )
+              })
+            )}
           </div>
         </div>
 
-        {/* Quality Selector */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-text-primary">
-            {mediaType === "video" ? "Video Quality" : "Audio Quality"}
-          </label>
-          <div className="relative">
-            <select
-              value={selectedQuality}
-              onChange={(e) => setSelectedQuality(e.target.value)}
-              className="w-full h-11 px-4 pr-10 rounded-lg border border-border bg-background text-text-primary appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
-            >
-              {currentQualities.length === 0 ? (
-                <option value="">No {mediaType} formats available</option>
-              ) : (
-                currentQualities.map((quality) => (
-                  <option key={quality.value} value={quality.value}>
-                    {quality.label}
-                  </option>
-                ))
-              )}
-            </select>
-            <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-              <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
+        {/* Video Clip Selector with Preview */}
+        {durationSeconds > 0 && videoId && (
+          <div className="pt-2 border-t border-border/50">
+            <VideoClipSelector
+              videoId={videoId}
+              durationSeconds={durationSeconds}
+              onClipRangeChange={handleClipRangeChange}
+            />
           </div>
-        </div>
+        )}
 
         {/* Encoding Selector - Only for video */}
         {mediaType === "video" && (
-          <div className="space-y-2">
+          <div className="space-y-3 pt-2 border-t border-border/50">
             <label className="text-sm font-medium text-text-primary">
-              Video Format
+              Format Compatibility
             </label>
-            <div className="relative">
-              <select
-                value={selectedEncoding}
-                onChange={(e) => setSelectedEncoding(e.target.value as VideoEncoding)}
-                className="w-full h-11 px-4 pr-10 rounded-lg border border-border bg-background text-text-primary appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
-              >
-                {VIDEO_ENCODINGS.map((encoding) => (
-                  <option key={encoding} value={encoding}>
-                    {VIDEO_ENCODING_LABELS[encoding]}
-                  </option>
-                ))}
-              </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {VIDEO_ENCODINGS.map((encoding) => {
+                 const isSelected = selectedEncoding === encoding
+                 return (
+                  <button
+                    key={encoding}
+                    onClick={() => setSelectedEncoding(encoding)}
+                    className={cn(
+                      "flex items-center justify-between px-4 py-3 rounded-lg border transition-all text-left",
+                      isSelected
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border bg-surface hover:border-primary/30 text-text-secondary"
+                    )}
+                  >
+                    <span className="text-sm font-medium">{VIDEO_ENCODING_LABELS[encoding]}</span>
+                    {isSelected && <Check className="w-4 h-4" />}
+                  </button>
+                 )
+              })}
             </div>
             {selectedEncoding === "h264" && (
-              <p className="text-xs text-text-secondary">
-                Re-encodes video with H.264 codec for YouTube compatibility. Takes longer but ensures maximum compatibility.
+              <p className="text-xs text-text-secondary flex items-start gap-1.5 bg-surface p-2 rounded border border-border/50">
+                <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                Re-encodes video with H.264 codec. Best for compatibility with older devices, but takes longer to process.
               </p>
             )}
           </div>
@@ -213,26 +280,23 @@ export function FormatSelector({
 
         {/* Loading Animation */}
         {isDownloading && (
-          <div className="p-6 rounded-lg bg-surface border border-border">
+          <div className="p-6 rounded-lg bg-surface border border-border animate-in fade-in zoom-in-95 duration-300">
             <div className="flex flex-col items-center gap-4">
               {/* Spinner */}
               <div className="relative w-16 h-16">
-                <div className="absolute inset-0 rounded-full border-4 border-border"></div>
+                <div className="absolute inset-0 rounded-full border-4 border-border/30"></div>
                 <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
-                {/* Download icon in center */}
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
+                  <Download className="w-6 h-6 text-primary animate-pulse" />
                 </div>
               </div>
               {/* Status text */}
-              <div className="text-center">
+              <div className="text-center space-y-1">
                 <p className="text-text-primary font-medium">
-                  Downloading {mediaType === "video" ? "Video" : "Audio"}...
+                  {clipRange ? "Processing Clip & Downloading" : "Preparing Download"}...
                 </p>
-                <p className="text-text-secondary text-sm mt-1">
-                  {selectedQuality} • Please wait, this may take a moment
+                <p className="text-text-secondary text-sm">
+                  {selectedQuality} • {mediaType === "video" ? "Video" : "Audio"}
                 </p>
               </div>
             </div>
@@ -241,12 +305,21 @@ export function FormatSelector({
 
         {/* Download Button */}
         <Button
-          className="w-full h-12 text-base"
+          className="w-full h-14 text-lg shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-shadow"
           onClick={handleDownload}
           disabled={!selectedFormat || isDownloading}
           isLoading={isDownloading}
         >
-          {isDownloading ? "Downloading..." : `Download ${mediaType === "video" ? "Video" : "Audio"}`}
+          {isDownloading ? (
+            "Processing..."
+          ) : (
+            <span className="flex items-center gap-2">
+              {clipRange ? <Scissors className="w-5 h-5" /> : <Download className="w-5 h-5" />}
+              {clipRange
+                ? `Download Clip (${mediaType === "video" ? "Video" : "Audio"})`
+                : `Download ${mediaType === "video" ? "Video" : "Audio"}`}
+            </span>
+          )}
         </Button>
       </CardContent>
     </Card>

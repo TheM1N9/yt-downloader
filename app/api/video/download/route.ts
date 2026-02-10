@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import {
   createVideoStream,
   createMergedStream,
+  createClippedStream,
   createH264EncodedStream,
   getVideoInfo,
   getFormatInfo,
@@ -16,10 +17,24 @@ export async function GET(request: NextRequest) {
   const quality = searchParams.get("quality") // e.g., "1080", "720", "480"
   const mergeAudio = searchParams.get("mergeAudio") === "true"
   const encodeParam = searchParams.get("encode") as VideoEncoding | null
+  const startTimeParam = searchParams.get("startTime")
+  const endTimeParam = searchParams.get("endTime")
 
   // Validate encoding option
   const encoding: VideoEncoding =
     encodeParam && VIDEO_ENCODINGS.includes(encodeParam) ? encodeParam : "original"
+
+  // Parse optional clip range
+  const startTime = startTimeParam !== null ? parseFloat(startTimeParam) : null
+  const endTime = endTimeParam !== null ? parseFloat(endTimeParam) : null
+  const hasClipRange = startTime !== null && endTime !== null && !isNaN(startTime) && !isNaN(endTime)
+
+  if (hasClipRange && (startTime! < 0 || endTime! <= startTime!)) {
+    return NextResponse.json(
+      { error: "Invalid clip range: endTime must be greater than startTime" },
+      { status: 400 }
+    )
+  }
 
   if (!videoId) {
     return NextResponse.json({ error: "Missing videoId" }, { status: 400 })
@@ -61,8 +76,14 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Create appropriate stream based on encoding option
-    if (encoding === "h264" && targetQuality) {
+    // Determine the effective quality for merged/clipped streams
+    const effectiveQuality = targetQuality || quality || "720"
+
+    // Create appropriate stream based on encoding and clip options
+    if (hasClipRange && targetQuality) {
+      // Time-based clipping takes priority — uses ffmpeg -ss/-to with stream copy
+      stream = createClippedStream(videoId, effectiveQuality, startTime!, endTime!)
+    } else if (encoding === "h264" && targetQuality) {
       // H.264 encoded stream (YouTube compatible)
       stream = createH264EncodedStream(videoId, targetQuality)
     } else if (quality) {
@@ -75,7 +96,11 @@ export async function GET(request: NextRequest) {
       // If video-only format and mergeAudio requested, use merged stream with quality
       const isVideoOnly = formatInfo?.hasVideo && !formatInfo?.hasAudio
       if (mergeAudio && isVideoOnly && targetQuality) {
-        stream = createMergedStream(videoId, targetQuality)
+        if (hasClipRange) {
+          stream = createClippedStream(videoId, targetQuality, startTime!, endTime!)
+        } else {
+          stream = createMergedStream(videoId, targetQuality)
+        }
       } else {
         stream = createVideoStream(videoId, itagNum)
       }
@@ -102,13 +127,14 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    // Create safe filename with encoding suffix
+    // Create safe filename with encoding and clip suffix
     const sanitizedTitle = videoInfo.title
       .replace(/[^a-z0-9\s-]/gi, "")
       .replace(/\s+/g, "_")
       .substring(0, 100)
     const encodingSuffix = encoding === "h264" ? "_h264" : ""
-    const filename = `${sanitizedTitle}_${qualityLabel}${encodingSuffix}.mp4`
+    const clipSuffix = hasClipRange ? `_clip_${startTime}s-${endTime}s` : ""
+    const filename = `${sanitizedTitle}_${qualityLabel}${encodingSuffix}${clipSuffix}.mp4`
 
     // Build response headers
     const headers: HeadersInit = {

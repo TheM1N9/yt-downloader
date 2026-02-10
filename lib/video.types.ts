@@ -4,6 +4,8 @@
 
 export interface VideoInfo {
   id: string
+  /** Alias for id - YouTube video ID */
+  videoId: string
   title: string
   description: string
   lengthSeconds: number

@@ -3,6 +3,7 @@
 import { Card } from "@/components/ui/card"
 import { formatDuration, formatNumber } from "@/lib/utils"
 import type { VideoInfo } from "@/lib/video.types"
+import { Calendar, Eye, ExternalLink, User, Clock } from "lucide-react"
 
 interface VideoInfoCardProps {
   video: VideoInfo
@@ -10,77 +11,66 @@ interface VideoInfoCardProps {
 
 export function VideoInfoCard({ video }: VideoInfoCardProps) {
   return (
-    <Card className="overflow-hidden">
-      <div className="flex flex-col sm:flex-row gap-4 p-4">
+    <Card className="overflow-hidden group hover:shadow-md transition-shadow">
+      <div className="flex flex-col sm:flex-row gap-5 p-5">
         {/* Thumbnail */}
-        <div className="relative shrink-0 w-full sm:w-64">
-          <div className="aspect-video rounded-[6px] overflow-hidden bg-background">
+        <div className="relative shrink-0 w-full sm:w-72">
+          <div className="aspect-video rounded-md overflow-hidden bg-background shadow-sm border border-border/50">
             <img
               src={video.thumbnail}
               alt={video.title}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
             />
           </div>
-          <span className="absolute bottom-2 right-2 bg-black/80 text-white text-xs font-mono px-1.5 py-0.5 rounded">
+          <div className="absolute bottom-2 right-2 bg-black/80 backdrop-blur-sm text-white text-xs font-medium px-2 py-1 rounded-sm flex items-center gap-1.5">
+            <Clock className="w-3 h-3" />
             {formatDuration(video.lengthSeconds)}
-          </span>
+          </div>
         </div>
 
         {/* Info */}
-        <div className="flex-1 min-w-0 space-y-2">
-          <h2 className="font-semibold text-text-primary text-lg leading-tight line-clamp-2">
-            {video.title}
-          </h2>
+        <div className="flex-1 min-w-0 flex flex-col justify-between gap-4">
+          <div className="space-y-3">
+            <h2 className="font-bold text-text-primary text-xl leading-snug line-clamp-2">
+              {video.title}
+            </h2>
+            
+            <a
+              href={video.channelUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-sm font-medium text-text-secondary hover:text-primary transition-colors group/channel"
+            >
+              <div className="w-6 h-6 rounded-full bg-surface border border-border flex items-center justify-center">
+                <User className="w-3.5 h-3.5" />
+              </div>
+              {video.channelName}
+              <ExternalLink className="w-3 h-3 opacity-0 -translate-x-1 group-hover/channel:opacity-100 group-hover/channel:translate-x-0 transition-all" />
+            </a>
+          </div>
           
-          <a
-            href={video.channelUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-text-secondary hover:text-primary inline-block"
-          >
-            {video.channelName}
-          </a>
-          
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-text-secondary">
-            <span className="flex items-center gap-1">
-              <ViewIcon className="w-4 h-4" />
-              {formatNumber(video.viewCount)} views
-            </span>
-            {video.publishDate && (
-              <span className="flex items-center gap-1">
-                <CalendarIcon className="w-4 h-4" />
-                {video.publishDate}
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-text-secondary">
+              <span className="flex items-center gap-1.5">
+                <Eye className="w-4 h-4 text-text-secondary/70" />
+                {formatNumber(video.viewCount)} views
               </span>
+              {video.publishDate && (
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-text-secondary/70" />
+                  {video.publishDate}
+                </span>
+              )}
+            </div>
+
+            {video.description && (
+              <p className="text-sm text-text-secondary line-clamp-2 leading-relaxed opacity-90">
+                {video.description}
+              </p>
             )}
           </div>
-
-          {video.description && (
-            <p className="text-sm text-text-secondary line-clamp-2 mt-2">
-              {video.description}
-            </p>
-          )}
         </div>
       </div>
     </Card>
-  )
-}
-
-function ViewIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  )
-}
-
-function CalendarIcon({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M8 2v4" />
-      <path d="M16 2v4" />
-      <rect width="18" height="18" x="3" y="4" rx="2" />
-      <path d="M3 10h18" />
-    </svg>
   )
 }

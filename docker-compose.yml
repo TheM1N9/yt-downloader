@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "4001:4001"
     environment:
       - NODE_ENV=production
     # Resource limits - adjust based on your hardware
@@ -18,7 +18,7 @@ services:
           memory: 2G
     # Health check
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4001/"]
       interval: 30s
       timeout: 10s
       retries: 3

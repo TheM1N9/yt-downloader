@@ -47,8 +47,10 @@ export async function getVideoInfo(videoId: string): Promise<VideoInfo> {
 
   const info = await execYtDlpJsonCached(url, cacheKey)
 
+  const id = info.id as string
   return {
-    id: info.id as string,
+    id,
+    videoId: id,
     title: info.title as string,
     description: (info.description as string) || "",
     lengthSeconds: (info.duration as number) || 0,

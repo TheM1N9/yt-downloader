@@ -4,7 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { ThemeSelector } from "@/components/theme-selector"
-import { Download, Menu, X, Image, FileText } from "lucide-react"
+import { Download, Menu, X, Image, FileText, Upload } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/download", label: "Download", icon: Download },
   { href: "/thumbnail", label: "Thumbnails", icon: Image },
   { href: "/caption", label: "Captions", icon: FileText },
+  { href: "/upload-caption", label: "Upload", icon: Upload },
 ] as const
 
 export function Nav() {

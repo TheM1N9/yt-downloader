@@ -4,6 +4,7 @@ import {
   Download,
   Image as ImageIcon, 
   FileText as CaptionIcon,
+  Upload as UploadIcon,
   ArrowRight,
   Youtube,
   Instagram,
@@ -127,6 +128,27 @@ export default function HomePage() {
                     </h3>
                     <p className="text-text-secondary text-sm leading-relaxed">
                       Extract captions and subtitles from YouTube videos. Export as SRT, VTT, or plain text.
+                    </p>
+                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-primary pt-2 group-hover:gap-2 transition-all">
+                      Open Tool <ArrowRight className="w-4 h-4" />
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/upload-caption" className="group">
+              <Card className="h-full hover:shadow-lg hover:border-primary/30 transition-all duration-300 hover:-translate-y-1">
+                <CardContent className="p-6 flex items-start gap-4">
+                  <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
+                    <UploadIcon className="w-7 h-7 text-primary" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-lg text-text-primary group-hover:text-primary transition-colors">
+                      Upload Video Captions
+                    </h3>
+                    <p className="text-text-secondary text-sm leading-relaxed">
+                      Upload any video file to extract captions via embedded subtitles or speech-to-text. Files auto-delete after 1 hour.
                     </p>
                     <span className="inline-flex items-center gap-1 text-sm font-semibold text-primary pt-2 group-hover:gap-2 transition-all">
                       Open Tool <ArrowRight className="w-4 h-4" />
